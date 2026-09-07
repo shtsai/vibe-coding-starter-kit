@@ -39,11 +39,15 @@ gh repo create my-app --private --source=. --push
 
 ## 4. Drop this kit in
 
-Copy everything from the starter kit into the new folder:
+Clone the starter kit somewhere temporary and copy its files in — but not its own
+`README.md`, `SETUP.md` or `ADOPT.md`, which describe the kit rather than your app:
 
 ```bash
-cp -R ~/Desktop/vibe-starter/. ~/Desktop/my-app/
-rm ~/Desktop/my-app/README.md.orig 2>/dev/null || true
+git clone https://github.com/shtsai/vibe-coding-starter-kit /tmp/kit
+cd ~/Desktop/my-app
+rsync -a --exclude README.md --exclude SETUP.md --exclude ADOPT.md \
+      --exclude .git /tmp/kit/ .
+chmod +x scripts/ship.sh .ship/preflight
 ```
 
 Then open Claude Code in that folder and say:
