@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# Repo pre-flight gate. Runs BEFORE anything is pushed, so a failure costs nothing.
+#
+# Guards the one failure that takes the site down without any test noticing:
+# Vercel deploys code on push but does NOT run database migrations. Code that
+# reads a brand-new column 500s for every visitor until a human runs the
+# migration. So: refuse to ship while production is behind the migration files.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+if [ -f scripts/check-prod-migrations.ts ]; then
+  npm run --silent db:check-prod-migrations
+else
+  echo "preflight: no migration check found — skipping" >&2
+fi

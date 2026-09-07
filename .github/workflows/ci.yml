@@ -1,0 +1,86 @@
+name: ci
+
+# Runs on every pull request. `ship` will not merge unless all of these are green.
+on:
+  pull_request:
+    branches: [main]
+
+# A second push to the same branch cancels the first run — nobody waits on a
+# result for code that has already been replaced.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# Every job runs in PARALLEL and every job has a timeout. A job with no timeout
+# runs to GitHub's 6-hour default when it hangs, which quietly burns a whole day
+# of CI minutes and tells nobody.
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npm run lint
+
+  typecheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npm run typecheck
+
+  unit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npm test
+
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      # A separate Neon branch, NEVER production. Add it as a repository secret.
+      DATABASE_URL: ${{ secrets.CI_DATABASE_URL }}
+      AUTH_SECRET: ci-only-not-a-real-secret
+      # Auth.js refuses unknown hosts in a production build, and the e2e suite is
+      # served from a production build. Without this every request 500s.
+      AUTH_TRUST_HOST: "true"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      # Fail loudly if the secret is missing rather than failing later with a
+      # confusing database error that reads as a product bug.
+      - name: Verify the CI database secret exists
+        run: test -n "$DATABASE_URL" || { echo "::error::CI_DATABASE_URL secret is not set"; exit 1; }
+      # The build is CPU-bound and the browser download is network-bound; they
+      # share nothing, so running them together saves most of a minute.
+      - name: Build and install Chromium
+        run: |
+          npm run build & build=$!
+          npx playwright install --with-deps chromium & browser=$!
+          wait "$build"   || { echo "::error::next build failed"; exit 1; }
+          wait "$browser" || { echo "::error::playwright install failed"; exit 1; }
+      - run: npm run db:migrate
+      - run: npm run db:seed
+      - run: npx playwright test
+      - name: Upload the Playwright report when something fails
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: ignore
